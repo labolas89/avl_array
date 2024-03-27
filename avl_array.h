@@ -319,6 +319,40 @@ public:
     return end();
   }
 
+  inline iterator upper_bound(const key_type& key) 
+  { 
+    for (size_type i = root_; i != INVALID_IDX;) {
+      if (key_[i] < key) {
+        i = child_[i].left;
+        if (key_[i] >= key)
+          return iterator(this, child_[i].right);
+      } else { // if (key <= key_[i]) {
+        i = child_[i].right;
+        if (key < key_[i])
+          return iterator(this, i);
+      }
+    }
+    // key not found, return end() iterator
+    return end();
+  }
+
+  inline iterator lower_bound(const key_type& key) 
+  { 
+    for (size_type i = root_; i != INVALID_IDX;) {
+      if (key_[i] <= key) {
+        i = child_[i].left;
+        if (key < key_[i])
+          return iterator(this, i);
+      } else { // if (key < key_[i]) {
+        i = child_[i].right;
+        if (key <= key_[i])
+          return iterator(this, child_[i].left);
+      }
+    }
+    // key not found, return end() iterator
+    return end();
+  }
+
 
   /**
    * Count elements with a specific key
