@@ -42,6 +42,7 @@
 #define _AVL_ARRAY_H_
 
 #include <cstdint>
+#include <type_traits>
 
 
 /**
@@ -51,7 +52,7 @@
  * \param Size Container size
  * \param Fast If true every node stores an extra parent index. This increases memory but speed up insert/erase by factor 10
  */
-template<typename Key, typename T, typename size_type, const size_type Size, const bool Fast = true>
+template<typename Key, typename T, typename size_type, size_type Size, const bool Fast = true>
 class avl_array
 {
   // child index pointer class
@@ -70,7 +71,7 @@ class avl_array
   size_type   parent_[Fast ? Size : 1];   // node parent, use one element if not needed (zero sized array is not allowed)
  
   // invalid index (like 'nullptr' in a pointer implementation)
-  static const size_type INVALID_IDX = Size;
+  static constexpr size_type INVALID_IDX = Size;
 
   // iterator class
   typedef class tag_avl_array_iterator
@@ -215,59 +216,57 @@ public:
    * \param val Value to insert or update
    * \return True if the key was successfully inserted or updated, false if container is full
    */
-  bool insert(const key_type& key, const value_type& val)
+  iterator insert(key_type&& key, value_type&& val, bool force = false)
   {
     if (root_ == INVALID_IDX) {
-      key_[size_]     = key;
-      val_[size_]     = val;
-      balance_[size_] = 0;
-      child_[size_]   = { INVALID_IDX, INVALID_IDX };
+      _assign(size_, std::forward<key_type>(key), std::forward<value_type>(val));
       set_parent(size_, INVALID_IDX);
       root_ = size_++;
-      return true;
+      return iterator(this, root_);
     }
 
-    for (size_type i = root_; i != INVALID_IDX; i = (key < key_[i]) ? child_[i].left : child_[i].right) {
+    for (size_type i = root_; 
+      i != INVALID_IDX; 
+      i = (key < key_[i]) ? child_[i].left : child_[i].right) 
+    {
       if (key < key_[i]) {
         if (child_[i].left == INVALID_IDX) {
           if (size_ >= max_size()) {
             // container is full
-            return false;
+            return end();
           }
-          key_[size_]     = key;
-          val_[size_]     = val;
-          balance_[size_] = 0;
-          child_[size_]   = { INVALID_IDX, INVALID_IDX };
+          _assign(size_, std::forward<key_type>(key), std::forward<value_type>(val));
           set_parent(size_, i);
           child_[i].left  = size_++;
           insert_balance(i, 1);
-          return true;
+          return iterator(this, size_-1);
         }
       }
       else if (key_[i] == key) {
-        // found same key, update node
-        val_[i] = val;
-        return true;
+        if (force) {
+          // found same key, update node
+          val_[i] = val;
+          return iterator(this, i);
+        } else {
+          return end();
+        }
       }
       else {
         if (child_[i].right == INVALID_IDX) {
           if (size_ >= max_size()) {
             // container is full
-            return false;
+            return end();
           }
-          key_[size_]     = key;
-          val_[size_]     = val;
-          balance_[size_] = 0;
-          child_[size_]   = { INVALID_IDX, INVALID_IDX };
+          _assign(size_, std::forward<key_type>(key), std::forward<value_type>(val));
           set_parent(size_, i);
           child_[i].right = size_++;
           insert_balance(i, -1);
-          return true;
+          return iterator(this, size_-1);
         }
       }
     }
     // node doesn't fit (should not happen) - discard it anyway
-    return false;
+    return end();
   }
 
 
@@ -319,6 +318,8 @@ public:
     return end();
   }
 
+#if 0 // TODO list (not work at 20240329)
+
   inline iterator upper_bound(const key_type& key) 
   { 
     for (size_type i = root_; i != INVALID_IDX;) {
@@ -352,7 +353,7 @@ public:
     // key not found, return end() iterator
     return end();
   }
-
+#endif
 
   /**
    * Count elements with a specific key
@@ -569,35 +570,53 @@ public:
   // Helper functions
 private:
 
+  inline void _assign(size_type idx, key_type&& key, value_type&& val) {
+    key_[idx]     = std::forward<key_type>(key);
+    val_[idx]     = std::forward<value_type>(val);
+    balance_[idx] = 0;
+    child_[idx]   = { INVALID_IDX, INVALID_IDX };
+  }
+#if 1
   // find parent element
+  template<bool _FAST = Fast, typename std::enable_if_t<_FAST>* = nullptr>
   inline size_type get_parent(size_type node) const
   {
-    if (Fast) {
-      return parent_[node];
-    }
-    else {
-      const Key key_node = key_[node];
-      for (size_type i = root_; i != INVALID_IDX; i = (key_node < key_[i]) ? child_[i].left : child_[i].right) {
-        if ((child_[i].left == node) || (child_[i].right == node)) {
-          // found parent
-          return i;
-        }
-      }
-      // parent not found
-      return INVALID_IDX;
-    }
+    return parent_[node];
   }
 
+  template<bool _FAST = Fast, typename std::enable_if_t<(_FAST==false)>* = nullptr>
+  inline size_type get_parent(size_type node) const
+  {
+    const Key key_node = key_[node];
+    for (size_type i = root_; i != INVALID_IDX; i = (key_node < key_[i]) ? child_[i].left : child_[i].right) {
+      if ((child_[i].left == node) || (child_[i].right == node)) {
+        // found parent
+        return i;
+      }
+    }
+    // parent not found
+    return INVALID_IDX;
+  }
 
   // set parent element (only in Fast version)
+  template<bool _FAST = Fast, typename std::enable_if_t<_FAST>* = nullptr>
   inline void set_parent(size_type node, size_type parent)
   {
-    if (Fast) {
-      if (node != INVALID_IDX) {
-        parent_[node] = parent;
-      }
+    if (node != INVALID_IDX) {
+      parent_[node] = parent;
     }
   }
+
+  
+  template<bool _FAST = Fast, typename std::enable_if_t<(_FAST==false)>* = nullptr>
+  inline void set_parent(size_type node, size_type parent)
+  {
+    // do notting
+  }
+#else
+  inline size_type get_parent(size_type node) const;
+  inline void set_parent(size_type node, size_type parent);
+#endif
 
 
   void insert_balance(size_type node, std::int8_t balance)
@@ -827,5 +846,8 @@ private:
     return right_left;
   }
 };
+
+
+
 
 #endif  // _AVL_ARRAY_H_
